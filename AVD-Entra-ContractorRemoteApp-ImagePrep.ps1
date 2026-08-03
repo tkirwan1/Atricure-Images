@@ -3,27 +3,22 @@
 # Azure Virtual Desktop session host used for contractor RemoteApp access.
 #
 # Intended Custom Image Template order:
-#   1. Windows Update
-#   2. Windows Restart
-#   3. Current Microsoft-provided Teams optimization customization
-#   4. This PowerShell script (run as SYSTEM and elevated)
-#   5. Windows Restart
+#   1. Apply Windows Updates
+#   2. Install Teams with optimizations
+#   3. This PowerShell script (run as SYSTEM and elevated)
+#   4. Windows Restart
 #
-# This script installs and validates the native Teams and Remote Help clients.
+# The preceding Microsoft-provided customization installs Teams and its AVD
+# optimization components. This script validates Teams and installs and
+# validates Microsoft Remote Help.
 # It intentionally does not configure FSLogix, Microsoft Entra join, Intune
 # enrollment, AVD registration, AppLocker, Edge URL policy, or user data.
 # Those items are applied at deployment time or through Intune.
 
 [CmdletBinding()]
 param(
-    [string]$TeamsBootstrapperUri = 'https://go.microsoft.com/fwlink/?clcid=0x409&linkid=2243204',
-    [string]$TeamsBootstrapperSha256 = '',
-    [string]$TeamsMsixUri = '',
-    [string]$TeamsMsixSha256 = '',
     [string]$RemoteHelpInstallerUri = 'https://aka.ms/downloadremotehelp',
-    [string]$RemoteHelpInstallerSha256 = '',
-    [switch]$SkipTeamsInstall,
-    [switch]$SkipRemoteHelpInstall
+    [string]$RemoteHelpInstallerSha256 = ''
 )
 
 Set-StrictMode -Version 2.0
@@ -364,57 +359,22 @@ foreach ($package in $optionalPackages) {
     Remove-OptionalAppxPackage -PackageName $package
 }
 
-if (-not $SkipTeamsInstall) {
-    $teamsBootstrapper = Join-Path $workFolder 'teamsbootstrapper.exe'
-
-    Invoke-Download `
-        -Uri $TeamsBootstrapperUri `
-        -Destination $teamsBootstrapper `
-        -ExpectedSha256 $TeamsBootstrapperSha256
-
-    if ([string]::IsNullOrWhiteSpace($TeamsMsixUri)) {
-        Invoke-Installer `
-            -FilePath $teamsBootstrapper `
-            -ArgumentList @('-p') `
-            -DisplayName 'Microsoft Teams'
-    }
-    else {
-        $teamsMsix = Join-Path $workFolder 'MSTeams-x64.msix'
-
-        Invoke-Download `
-            -Uri $TeamsMsixUri `
-            -Destination $teamsMsix `
-            -ExpectedSha256 $TeamsMsixSha256
-
-        Invoke-Installer `
-            -FilePath $teamsBootstrapper `
-            -ArgumentList @('-p', '-o', $teamsMsix) `
-            -DisplayName 'Microsoft Teams'
-    }
-}
-else {
-    Write-Log 'Teams installation was skipped by parameter.'
-}
-
+Write-Log 'Teams installation is handled by the preceding built-in AVD customization.'
 Assert-TeamsInstalled
 
-if (-not $SkipRemoteHelpInstall) {
-    $remoteHelpInstaller = Join-Path $workFolder 'remotehelpinstaller.exe'
+$remoteHelpInstaller = Join-Path $workFolder 'remotehelpinstaller.exe'
 
-    Invoke-Download `
-        -Uri $RemoteHelpInstallerUri `
-        -Destination $remoteHelpInstaller `
-        -ExpectedSha256 $RemoteHelpInstallerSha256
+Invoke-Download `
+    -Uri $RemoteHelpInstallerUri `
+    -Destination $remoteHelpInstaller `
+    -ExpectedSha256 $RemoteHelpInstallerSha256
 
-    Invoke-Installer `
-        -FilePath $remoteHelpInstaller `
-        -ArgumentList @('/quiet', 'acceptTerms=1') `
-        -SuccessExitCodes @(0, 1641, 3010) `
-        -DisplayName 'Microsoft Remote Help'
-}
-else {
-    Write-Log 'Remote Help installation was skipped by parameter.'
-}
+# Automatic updates remain enabled because enableAutoUpdates=0 is intentionally omitted.
+Invoke-Installer `
+    -FilePath $remoteHelpInstaller `
+    -ArgumentList @('/quiet', 'acceptTerms=1') `
+    -SuccessExitCodes @(0, 1641, 3010) `
+    -DisplayName 'Microsoft Remote Help'
 
 $remoteHelpPath = "$env:ProgramFiles\Remote Help\RemoteHelp.exe"
 if (-not (Test-Path -LiteralPath $remoteHelpPath)) {
